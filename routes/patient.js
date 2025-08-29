@@ -101,6 +101,36 @@ router.put('/:id', async (req, res) => {
   }
 });
 
+// GET patient by ID
+router.get('/:id', async (req, res) => {
+  try {
+    const patient = await Patient.findById(req.params.id);
+    if (!patient) {
+      return res.status(404).json({ message: 'ไม่พบข้อมูลผู้ป่วย' });
+    }
+    res.json(patient);
+  } catch (err) {
+    console.error('Get patient error:', err);
+    res.status(500).json({ message: err.message });
+  }
+});
+
+// DELETE patient by ID
+router.delete('/:id', async (req, res) => {
+  try {
+    const deletedPatient = await Patient.findByIdAndDelete(req.params.id);
+    
+    if (!deletedPatient) {
+      return res.status(404).json({ message: 'ไม่พบข้อมูลผู้ป่วย' });
+    }
+    
+    res.json({ message: 'ลบข้อมูลผู้ป่วยสำเร็จ', patient: deletedPatient });
+  } catch (err) {
+    console.error('Delete patient error:', err);
+    res.status(500).json({ message: err.message });
+  }
+});
+
 // GET last ln
 router.get('/lastLn', async (req, res) => {
   try {

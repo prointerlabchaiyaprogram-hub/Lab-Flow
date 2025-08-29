@@ -161,8 +161,17 @@ router.put('/:id', async (req, res) => {
   }
 });
 
-
-
-
+// DELETE visit by id
+router.delete('/:id', async (req, res) => {
+  try {
+    const deletedVisit = await Visit.findByIdAndDelete(req.params.id);
+    
+    if (!deletedVisit) return res.status(404).json({ message: 'ไม่พบ Visit' });
+    res.json({ message: 'ลบ Visit สำเร็จ', visit: deletedVisit });
+  } catch (err) {
+    console.error('Delete visit error:', err);
+    res.status(500).json({ message: err.message });
+  }
+});
 
 module.exports = router;

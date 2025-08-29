@@ -3,9 +3,6 @@ const router = express.Router();
 const multer = require('multer');
 const path = require('path');
 const TestResult = require('../models/TestResult');
-const { uploadFileToSupabase, deleteFileFromSupabase } = require('../supabase-config');
-
-// Configure multer for file uploads (Supabase + local fallback)
 const fs = require('fs');
 
 // Ensure uploads directory exists
@@ -14,8 +11,17 @@ if (!fs.existsSync(uploadsDir)) {
   fs.mkdirSync(uploadsDir, { recursive: true });
 }
 
-// Use memory storage for Supabase, with local fallback
-const storage = multer.memoryStorage();
+// Configure multer for local file storage
+const storage = multer.diskStorage({
+  destination: function (req, file, cb) {
+    cb(null, uploadsDir);
+  },
+  filename: function (req, file, cb) {
+    const timestamp = Date.now();
+    const uniqueFileName = `${timestamp}-${file.originalname}`;
+    cb(null, uniqueFileName);
+  }
+});
 
 const upload = multer({ 
   storage: storage,
@@ -36,28 +42,29 @@ const upload = multer({
   }
 });
 
-// Helper function to save file locally as fallback
-function saveFileLocally(fileBuffer, originalName) {
-  const timestamp = Date.now();
-  const uniqueFileName = `${timestamp}-${originalName}`;
-  const filePath = path.join(uploadsDir, uniqueFileName);
-  
-  fs.writeFileSync(filePath, fileBuffer);
-  
-  return {
-    fileName: uniqueFileName,
-    url: `/uploads/${uniqueFileName}`,
-    path: filePath,
-    originalName: originalName,
-    size: fileBuffer.length,
-    mimetype: 'application/octet-stream'
-  };
-}
 
 // GET /api/test-results - Get all test results
 router.get('/', async (req, res) => {
   try {
-    const testResults = await TestResult.find().sort({ createdAt: -1 });
+    const testResults = await TestResult.find()
+      .populate({
+        path: 'order',
+        populate: [
+          {
+            path: 'patient',
+            model: 'Patient'
+          },
+          {
+            path: 'visit',
+            model: 'Visit',
+            populate: {
+              path: 'patient',
+              model: 'Patient'
+            }
+          }
+        ]
+      })
+      .sort({ createdAt: -1 });
     res.json(testResults);
   } catch (error) {
     console.error('Error fetching test results:', error);
@@ -68,7 +75,24 @@ router.get('/', async (req, res) => {
 // GET /api/test-results/:id - Get specific test result
 router.get('/:id', async (req, res) => {
   try {
-    const testResult = await TestResult.findById(req.params.id);
+    const testResult = await TestResult.findById(req.params.id)
+      .populate({
+        path: 'order',
+        populate: [
+          {
+            path: 'patient',
+            model: 'Patient'
+          },
+          {
+            path: 'visit',
+            model: 'Visit',
+            populate: {
+              path: 'patient',
+              model: 'Patient'
+            }
+          }
+        ]
+      });
     if (!testResult) {
       return res.status(404).json({ error: 'Test result not found' });
     }
@@ -82,55 +106,46 @@ router.get('/:id', async (req, res) => {
 // POST /api/test-results - Create new test result with file uploads
 router.post('/', upload.array('files', 10), async (req, res) => {
   try {
+    console.log('📥 POST /api/test-results - Request received');
+    console.log('📋 Request body:', req.body);
+    console.log('📎 Files received:', req.files ? req.files.length : 0);
+    
+    if (req.files && req.files.length > 0) {
+      req.files.forEach((file, index) => {
+        console.log(`📄 File ${index + 1}:`, {
+          originalname: file.originalname,
+          mimetype: file.mimetype,
+          size: file.size,
+          buffer: file.buffer ? `${file.buffer.length} bytes` : 'No buffer'
+        });
+      });
+    }
+
     const { orderId, notes } = req.body;
 
     if (!orderId) {
+      console.log('❌ Missing orderId');
       return res.status(400).json({ error: 'Order ID is required' });
     }
 
     if (!req.files || req.files.length === 0) {
+      console.log('❌ No files received');
       return res.status(400).json({ error: 'At least one file is required' });
     }
 
-    // Try Supabase first, fallback to local storage
-    const uploadedFiles = [];
-    
-    for (const file of req.files) {
-      let uploaded = false;
-      
-      // Try Supabase first
-      try {
-        console.log(`📦 Attempting Supabase upload for: ${file.originalname}`);
-        const supabaseResult = await uploadFileToSupabase(file.buffer, file.originalname, 'test-results');
-        
-        uploadedFiles.push({
-          fileName: supabaseResult.fileName,
-          url: supabaseResult.url,
-          path: supabaseResult.path,
-          originalName: file.originalname,
-          size: file.size,
-          mimetype: file.mimetype,
-          storage: 'supabase'
-        });
-        
-        console.log(`✅ Supabase upload successful: ${file.originalname}`);
-        uploaded = true;
-      } catch (supabaseError) {
-        console.log(`❌ Supabase failed for ${file.originalname}, using local storage`);
-      }
-      
-      // Use local storage as fallback
-      if (!uploaded) {
-        const localResult = saveFileLocally(file.buffer, file.originalname);
-        uploadedFiles.push({
-          ...localResult,
-          mimetype: file.mimetype,
-          storage: 'local'
-        });
-        
-        console.log(`✅ Local storage successful: ${file.originalname}`);
-      }
-    }
+    // Process uploaded files
+    const uploadedFiles = req.files.map((file) => {
+      const fileUrl = `/uploads/${file.filename}`;
+      return {
+        fileName: file.filename,
+        url: fileUrl,
+        path: file.path,
+        originalName: file.originalname,
+        size: file.size,
+        mimetype: file.mimetype,
+        storage: 'local'
+      };
+    });
 
     const testResult = new TestResult({
       order: orderId,
@@ -151,7 +166,24 @@ router.post('/', upload.array('files', 10), async (req, res) => {
     }
     
     // Populate the saved result before sending response
-    const populatedResult = await TestResult.findById(testResult._id);
+    const populatedResult = await TestResult.findById(testResult._id)
+      .populate({
+        path: 'order',
+        populate: [
+          {
+            path: 'patient',
+            model: 'Patient'
+          },
+          {
+            path: 'visit',
+            model: 'Visit',
+            populate: {
+              path: 'patient',
+              model: 'Patient'
+            }
+          }
+        ]
+      });
     
     res.status(201).json({
       message: 'Test result saved successfully',
@@ -197,7 +229,24 @@ router.put('/:id', upload.array('files', 10), async (req, res) => {
 
     await testResult.save();
     
-    const populatedResult = await TestResult.findById(testResult._id);
+    const populatedResult = await TestResult.findById(testResult._id)
+      .populate({
+        path: 'order',
+        populate: [
+          {
+            path: 'patient',
+            model: 'Patient'
+          },
+          {
+            path: 'visit',
+            model: 'Visit',
+            populate: {
+              path: 'patient',
+              model: 'Patient'
+            }
+          }
+        ]
+      });
     
     res.json({
       message: 'Test result updated successfully',
@@ -218,18 +267,18 @@ router.delete('/:id', async (req, res) => {
       return res.status(404).json({ error: 'Test result not found' });
     }
 
-    // Delete files from local storage
+    // Delete local files
     if (testResult.files && testResult.files.length > 0) {
-      testResult.files.forEach(file => {
-        if (file.path && fs.existsSync(file.path)) {
-          try {
+      for (const file of testResult.files) {
+        try {
+          if (file.path && fs.existsSync(file.path)) {
             fs.unlinkSync(file.path);
-            console.log(`File deleted: ${file.path}`);
-          } catch (error) {
-            console.error(`Failed to delete file ${file.path}:`, error);
+            console.log(`✅ Local file deleted: ${file.path}`);
           }
+        } catch (error) {
+          console.error(`❌ Failed to delete file ${file.path}:`, error);
         }
-      });
+      }
     }
 
     // Delete the test result document
@@ -245,7 +294,25 @@ router.delete('/:id', async (req, res) => {
 // GET /api/test-results/order/:orderId - Get test results for specific order
 router.get('/order/:orderId', async (req, res) => {
   try {
-    const testResults = await TestResult.find({ order: req.params.orderId }).sort({ createdAt: -1 });
+    const testResults = await TestResult.find({ order: req.params.orderId })
+      .populate({
+        path: 'order',
+        populate: [
+          {
+            path: 'patient',
+            model: 'Patient'
+          },
+          {
+            path: 'visit',
+            model: 'Visit',
+            populate: {
+              path: 'patient',
+              model: 'Patient'
+            }
+          }
+        ]
+      })
+      .sort({ createdAt: -1 });
     res.json(testResults);
   } catch (error) {
     console.error('Error fetching test results for order:', error);
