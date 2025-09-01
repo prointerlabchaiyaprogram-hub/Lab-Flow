@@ -8,19 +8,28 @@ const Order = require('../models/Order');
 // Generate Registration Report Excel
 router.get('/registration-excel', async (req, res) => {
   try {
-    const { fromDate, toDate } = req.query;
+    const { fromDate, toDate, organization } = req.query;
+    
+    console.log('Registration report parameters:', { fromDate, toDate, organization });
     
     // Build date filter - use visitDate instead of createdAt for more accurate filtering
-    let dateFilter = {};
+    let filter = {};
     if (fromDate && toDate) {
-      dateFilter.visitDate = {
+      filter.visitDate = {
         $gte: new Date(fromDate),
         $lte: new Date(toDate + 'T23:59:59.999Z') // Include the entire end date
       };
     }
     
-    // Fetch visits with populated patient data and date filtering
-    const visits = await Visit.find(dateFilter)
+    // Add organization filter if specified
+    if (organization) {
+      filter.organization = organization;
+    }
+    
+    console.log('Final filter for registration report:', filter);
+    
+    // Fetch visits with populated patient data and filtering
+    const visits = await Visit.find(filter)
       .populate('patient')
       .sort({ createdAt: -1 });
 
@@ -201,7 +210,9 @@ router.get('/registration-excel', async (req, res) => {
 // Generate Sales Report Excel
 router.get('/sales-excel', async (req, res) => {
   try {
-    const { fromDate, toDate } = req.query;
+    const { fromDate, toDate, organization } = req.query;
+    
+    console.log('Sales report parameters:', { fromDate, toDate, organization });
     
     // Build date filter using createdAt for orders
     let dateFilter = {};
@@ -212,15 +223,42 @@ router.get('/sales-excel', async (req, res) => {
       };
     }
     
+    // Build organization filter for visits if specified
+    let visitFilter = {};
+    if (organization) {
+      visitFilter.organization = organization;
+    }
+    
+    console.log('Sales report filters:', { dateFilter, visitFilter });
+    
     // Fetch orders with populated visit and patient data
-    const orders = await Order.find(dateFilter)
-      .populate({
-        path: 'visit',
-        populate: {
-          path: 'patient'
-        }
-      })
-      .sort({ createdAt: -1 });
+    let orders;
+    if (organization) {
+      // If organization filter is specified, first find matching visits
+      const matchingVisits = await Visit.find(visitFilter).select('_id');
+      const visitIds = matchingVisits.map(v => v._id);
+      
+      // Then find orders for those visits
+      const combinedFilter = { ...dateFilter, visit: { $in: visitIds } };
+      orders = await Order.find(combinedFilter)
+        .populate({
+          path: 'visit',
+          populate: {
+            path: 'patient'
+          }
+        })
+        .sort({ createdAt: -1 });
+    } else {
+      // No organization filter, use original query
+      orders = await Order.find(dateFilter)
+        .populate({
+          path: 'visit',
+          populate: {
+            path: 'patient'
+          }
+        })
+        .sort({ createdAt: -1 });
+    }
 
     console.log(`Found ${orders.length} orders for sales report`);
     
@@ -379,19 +417,28 @@ router.get('/sales-excel', async (req, res) => {
 // Generate Laboratory Data Import Report Excel
 router.get('/lab-import-excel', async (req, res) => {
   try {
-    const { fromDate, toDate } = req.query;
+    const { fromDate, toDate, organization } = req.query;
+    
+    console.log('Lab import report parameters:', { fromDate, toDate, organization });
     
     // Build date filter
-    let dateFilter = {};
+    let filter = {};
     if (fromDate && toDate) {
-      dateFilter.visitDate = {
+      filter.visitDate = {
         $gte: new Date(fromDate),
         $lte: new Date(toDate + 'T23:59:59.999Z')
       };
     }
     
+    // Add organization filter if specified
+    if (organization) {
+      filter.organization = organization;
+    }
+    
+    console.log('Final filter for lab import report:', filter);
+    
     // Fetch visits with populated patient data and orders
-    const visits = await Visit.find(dateFilter)
+    const visits = await Visit.find(filter)
       .populate('patient')
       .sort({ createdAt: -1 });
 

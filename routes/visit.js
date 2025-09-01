@@ -174,4 +174,23 @@ router.delete('/:id', async (req, res) => {
   }
 });
 
+// GET unique organizations for filtering
+router.get('/organizations/list', async (req, res) => {
+  try {
+    const organizations = await Visit.distinct('organization', {
+      organization: { $exists: true, $ne: '', $ne: null }
+    });
+    
+    const filteredOrgs = organizations
+      .filter(org => org && org.trim() !== '')
+      .sort();
+    
+    console.log('Organizations found:', filteredOrgs);
+    res.json(filteredOrgs);
+  } catch (err) {
+    console.error('Fetch organizations error:', err);
+    res.status(500).json({ message: err.message });
+  }
+});
+
 module.exports = router;
