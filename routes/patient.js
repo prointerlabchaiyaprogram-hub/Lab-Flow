@@ -82,6 +82,39 @@ router.post('/', async (req, res) => {
   }
 });
 
+// PUT update patient LN format (remove L prefix)
+router.put('/update-ln-format', async (req, res) => {
+  try {
+    // Find all patients with LN starting with 'L'
+    const patientsWithL = await Patient.find({
+      ln: { $regex: '^L' }
+    });
+
+    console.log(`Found ${patientsWithL.length} patients with LN starting with 'L'`);
+
+    let updatedCount = 0;
+    const updates = [];
+
+    for (const patient of patientsWithL) {
+      const oldLn = patient.ln;
+      const newLn = oldLn.substring(1); // Remove the first character 'L'
+      
+      await Patient.findByIdAndUpdate(patient._id, { ln: newLn });
+      updates.push({ oldLn, newLn, name: `${patient.firstName} ${patient.lastName}` });
+      updatedCount++;
+    }
+
+    res.json({ 
+      message: `Successfully updated ${updatedCount} patient records`,
+      updates: updates
+    });
+    
+  } catch (error) {
+    console.error('Error updating LN format:', error);
+    res.status(500).json({ message: 'เกิดข้อผิดพลาดในการอัปเดต LN' });
+  }
+});
+
 // PUT update patient by ID
 router.put('/:id', async (req, res) => {
   try {
