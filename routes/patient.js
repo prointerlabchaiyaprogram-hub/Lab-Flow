@@ -134,17 +134,39 @@ router.delete('/:id', async (req, res) => {
 // GET last ln
 router.get('/lastLn', async (req, res) => {
   try {
-    // ดึง patient ที่ ln มากที่สุด (เรียงจากเลข)
-    const lastPatient = await Patient.findOne({ ln: { $exists: true } })
-      .sort({ ln: -1 }) // เรียงจากมากไปน้อย
-      .exec();
+    // สร้างรูปแบบ LN ใหม่: ปีพ.ศ.2หลัก + เดือน2หลัก + ลำดับ4หลัก
+    const now = new Date();
+    const buddhistYear = now.getFullYear() + 543;
+    const yearSuffix = buddhistYear.toString().slice(-2); // เอา 2 หลักท้าย
+    const month = String(now.getMonth() + 1).padStart(2, '0');
+    const currentPrefix = `${yearSuffix}${month}`; // เช่น "6809"
+    
+    // ค้นหา LN ที่มีรูปแบบเดียวกันในเดือนปัจจุบัน
+    const patients = await Patient.find({ 
+      ln: { 
+        $exists: true, 
+        $ne: null,
+        $regex: `^${currentPrefix}` // ขึ้นต้นด้วย ปีเดือนปัจจุบัน
+      } 
+    }).exec();
+    
+    let maxSequence = 0;
+    
+    patients.forEach(patient => {
+      if (patient.ln && patient.ln.startsWith(currentPrefix)) {
+        // ดึงเลขลำดับ 4 หลักท้าย
+        const sequence = parseInt(patient.ln.slice(-4), 10);
+        if (!isNaN(sequence) && sequence > maxSequence) {
+          maxSequence = sequence;
+        }
+      }
+    });
 
-    let lastLn = 'L0'; // default ถ้าไม่มี ln ใน DB
-    if (lastPatient && lastPatient.ln) {
-      lastLn = lastPatient.ln;
-    }
-
-    res.json({ lastLn });
+    // สร้าง LN ใหม่
+    const nextSequence = String(maxSequence + 1).padStart(4, '0');
+    const nextLn = `${currentPrefix}${nextSequence}`;
+    
+    res.json({ lastLn: nextLn });
   } catch (err) {
     console.error('Error fetching last Ln:', err);
     res.status(500).json({ message: 'เกิดข้อผิดพลาดในการดึงเลข LN ล่าสุด' });
