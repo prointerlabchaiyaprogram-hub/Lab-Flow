@@ -53,6 +53,7 @@ router.get('/', async (req, res) => {
 router.post('/', async (req, res) => {
   try {
     console.log('Received patient data:', req.body);
+    console.log('LN in received data:', req.body.ln);
     
     // ตรวจสอบและแปลง birthDate
     if (!req.body.birthDate || req.body.birthDate === "") {
@@ -68,7 +69,11 @@ router.post('/', async (req, res) => {
     console.log('Creating patient with LN:', newPatient.ln);
     
     await newPatient.save();
-    console.log('Patient saved successfully:', newPatient);
+    console.log('Patient saved successfully with LN:', newPatient.ln);
+    
+    // ตรวจสอบว่าบันทึกลงฐานข้อมูลจริงหรือไม่
+    const savedPatient = await Patient.findById(newPatient._id);
+    console.log('Verified saved patient LN:', savedPatient?.ln);
     
     res.status(201).json(newPatient);
   } catch (err) {
@@ -117,28 +122,41 @@ router.get('/lastLn', async (req, res) => {
     const month = String(now.getMonth() + 1).padStart(2, '0');
     const currentPrefix = `${yearSuffix}${month}`; // เช่น "6809"
     
-    // ค้นหา LN ที่มีรูปแบบเดียวกันในเดือนปัจจุบัน
+    // ค้นหา LN ที่มีรูปแบบเดียวกันในเดือนปัจจุบัน (รองรับทั้งรูปแบบเก่าที่มี L และใหม่ที่ไม่มี L)
     const patients = await Patient.find({ 
-      ln: { 
-        $exists: true, 
-        $ne: null,
-        $regex: `^${currentPrefix}` // ขึ้นต้นด้วย ปีเดือนปัจจุบัน
-      } 
+      $or: [
+        { ln: { $regex: `^${currentPrefix}` } }, // รูปแบบใหม่: 68090001
+        { ln: { $regex: `^L${currentPrefix}` } } // รูปแบบเก่า: L68090001
+      ]
     }).exec();
+    
+    console.log(`Found ${patients.length} patients with prefix ${currentPrefix}`);
     
     let maxSequence = 0;
     
     patients.forEach(patient => {
-      if (patient.ln && patient.ln.startsWith(currentPrefix)) {
-        // ดึงเลขลำดับ 4 หลักท้าย
-        const sequence = parseInt(patient.ln.slice(-4), 10);
+      if (patient.ln) {
+        let sequence = 0;
+        
+        // ตรวจสอบรูปแบบ LN
+        if (patient.ln.startsWith(`L${currentPrefix}`)) {
+          // รูปแบบเก่า: L68090001
+          sequence = parseInt(patient.ln.slice(-4), 10);
+        } else if (patient.ln.startsWith(currentPrefix)) {
+          // รูปแบบใหม่: 68090001
+          sequence = parseInt(patient.ln.slice(-4), 10);
+        }
+        
+        console.log(`Patient LN: ${patient.ln}, Sequence: ${sequence}`);
         if (!isNaN(sequence) && sequence > maxSequence) {
           maxSequence = sequence;
         }
       }
     });
 
-    // สร้าง LN ใหม่
+    console.log(`Max sequence found: ${maxSequence}`);
+
+    // สร้าง LN ใหม่ (เฉพาะตัวเลข ไม่มี L)
     const nextSequence = String(maxSequence + 1).padStart(4, '0');
     const nextLn = `${currentPrefix}${nextSequence}`;
     
