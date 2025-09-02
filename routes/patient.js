@@ -52,6 +52,8 @@ router.get('/', async (req, res) => {
 // POST create new patient
 router.post('/', async (req, res) => {
   try {
+    console.log('Received patient data:', req.body);
+    
     // ตรวจสอบและแปลง birthDate
     if (!req.body.birthDate || req.body.birthDate === "") {
       delete req.body.birthDate;
@@ -63,7 +65,11 @@ router.post('/', async (req, res) => {
     }
 
     const newPatient = new Patient(req.body);
+    console.log('Creating patient with LN:', newPatient.ln);
+    
     await newPatient.save();
+    console.log('Patient saved successfully:', newPatient);
+    
     res.status(201).json(newPatient);
   } catch (err) {
     console.error('Patient create error:', err);
@@ -101,37 +107,7 @@ router.put('/:id', async (req, res) => {
   }
 });
 
-// GET patient by ID
-router.get('/:id', async (req, res) => {
-  try {
-    const patient = await Patient.findById(req.params.id);
-    if (!patient) {
-      return res.status(404).json({ message: 'ไม่พบข้อมูลผู้ป่วย' });
-    }
-    res.json(patient);
-  } catch (err) {
-    console.error('Get patient error:', err);
-    res.status(500).json({ message: err.message });
-  }
-});
-
-// DELETE patient by ID
-router.delete('/:id', async (req, res) => {
-  try {
-    const deletedPatient = await Patient.findByIdAndDelete(req.params.id);
-    
-    if (!deletedPatient) {
-      return res.status(404).json({ message: 'ไม่พบข้อมูลผู้ป่วย' });
-    }
-    
-    res.json({ message: 'ลบข้อมูลผู้ป่วยสำเร็จ', patient: deletedPatient });
-  } catch (err) {
-    console.error('Delete patient error:', err);
-    res.status(500).json({ message: err.message });
-  }
-});
-
-// GET last ln
+// GET last ln (ต้องมาก่อน /:id เพื่อไม่ให้ชน)
 router.get('/lastLn', async (req, res) => {
   try {
     // สร้างรูปแบบ LN ใหม่: ปีพ.ศ.2หลัก + เดือน2หลัก + ลำดับ4หลัก
@@ -166,10 +142,41 @@ router.get('/lastLn', async (req, res) => {
     const nextSequence = String(maxSequence + 1).padStart(4, '0');
     const nextLn = `${currentPrefix}${nextSequence}`;
     
+    console.log('Generated new LN:', nextLn);
     res.json({ lastLn: nextLn });
   } catch (err) {
     console.error('Error fetching last Ln:', err);
     res.status(500).json({ message: 'เกิดข้อผิดพลาดในการดึงเลข LN ล่าสุด' });
+  }
+});
+
+// GET patient by ID
+router.get('/:id', async (req, res) => {
+  try {
+    const patient = await Patient.findById(req.params.id);
+    if (!patient) {
+      return res.status(404).json({ message: 'ไม่พบข้อมูลผู้ป่วย' });
+    }
+    res.json(patient);
+  } catch (err) {
+    console.error('Get patient error:', err);
+    res.status(500).json({ message: err.message });
+  }
+});
+
+// DELETE patient by ID
+router.delete('/:id', async (req, res) => {
+  try {
+    const deletedPatient = await Patient.findByIdAndDelete(req.params.id);
+    
+    if (!deletedPatient) {
+      return res.status(404).json({ message: 'ไม่พบข้อมูลผู้ป่วย' });
+    }
+    
+    res.json({ message: 'ลบข้อมูลผู้ป่วยสำเร็จ', patient: deletedPatient });
+  } catch (err) {
+    console.error('Delete patient error:', err);
+    res.status(500).json({ message: err.message });
   }
 });
 
